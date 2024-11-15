@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { supabase } from '../lib/supabase';
@@ -7,10 +7,23 @@ import { Loader2 } from "lucide-react";
 export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [showCodeInput, setShowCodeInput] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if we have a token in the URL
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const token = hashParams.get('access_token');
+    if (!token) {
+      setShowCodeInput(true);
+    } else {
+      setCode(token);
+    }
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -27,32 +40,31 @@ export default function ResetPassword() {
       return;
     }
 
+    if (!code) {
+      setError('Please enter the reset code from your email');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // Get the token from the URL
-      const hashParams = new URLSearchParams(window.location.hash.substring(1));
-      const token = hashParams.get('access_token');
       const email = sessionStorage.getItem('resetEmail');
-
       if (!email) {
-        throw new Error('Please restart the password reset process');
+        throw new Error('Please start the reset process from the login page');
       }
 
-      // Verify the OTP code and reset password
-      const { data, error: verifyError } = await supabase.auth.verifyOtp({
+      // Verify the OTP and update password
+      const { error: resetError } = await supabase.auth.verifyOtp({
         email,
-        token,
+        token: code,
         type: 'recovery',
         newPassword: newPassword
       });
 
-      if (verifyError) throw verifyError;
+      if (resetError) throw resetError;
 
       setMessage('Password has been successfully reset! Redirecting to login...');
-      
-      // Clear the stored email
-      sessionStorage.removeItem('resetEmail');
+      sessionStorage.removeItem('resetEmail'); // Clean up
       
       setTimeout(() => {
         navigate('/login');
@@ -60,12 +72,7 @@ export default function ResetPassword() {
 
     } catch (err) {
       console.error('Reset password error:', err);
-      if (err.message.includes('restart')) {
-        setError(err.message);
-        setTimeout(() => navigate('/login'), 3000);
-      } else {
-        setError(err.message || 'Failed to reset password. Please try again.');
-      }
+      setError(err.message || 'Failed to reset password. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -84,6 +91,7 @@ export default function ResetPassword() {
           </h2>
           <p className="mt-2 text-center text-sm text-blue-200">
             Please enter your new password
+            {showCodeInput && ' and the code from your email'}
           </p>
         </div>
 
@@ -108,6 +116,23 @@ export default function ResetPassword() {
         )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {showCodeInput && (
+            <div>
+              <label htmlFor="reset-code" className="sr-only">Reset Code</label>
+              <input
+                id="reset-code"
+                type="text"
+                required
+                maxLength={6}
+                pattern="\d{6}"
+                className="appearance-none rounded-xl relative block w-full px-4 py-3 border border-white/10 placeholder-gray-400 text-white bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
+                placeholder="Enter 6-digit reset code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+              />
+            </div>
+          )}
+
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="new-password" className="sr-only">New Password</label>
