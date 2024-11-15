@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { supabase } from '../lib/supabase';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loader2 } from "lucide-react";
 
 export default function UserLogin() {
   const [credentials, setCredentials] = useState({ email: '', password: '' });
@@ -12,7 +14,52 @@ export default function UserLogin() {
   const [resetEmail, setResetEmail] = useState('');
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  // Check for existing session on component mount
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        redirectBasedOnUserType(session.user.id);
+      }
+    };
+    checkSession();
+  }, []);
+
+  // Helper function to redirect based on user type
+  const redirectBasedOnUserType = async (userId) => {
+    try {
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('type')
+        .eq('id', userId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      if (profile) {
+        localStorage.setItem('userRole', profile.type);
+        
+        switch (profile.type) {
+          case 'participant':
+            navigate('/participant/dashboard');
+            break;
+          case 'volunteer':
+            navigate('/volunteer/dashboard');
+            break;
+          case 'both':
+            navigate('/participant/dashboard');
+            break;
+          default:
+            navigate('/participant/dashboard');
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching user profile:', err);
+      setError('Error determining user type. Please try again.');
+    }
+  };
+
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -26,35 +73,11 @@ export default function UserLogin() {
       if (error) throw error;
 
       if (data?.user) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('type')
-          .eq('id', data.user.id)
-          .single();
-
-        if (profileError) throw profileError;
-
-        if (profile) {
-          localStorage.setItem('userRole', profile.type);
-
-          switch (profile.type) {
-            case 'participant':
-              navigate('/participant/dashboard');
-              break;
-            case 'volunteer':
-              navigate('/volunteer/dashboard');
-              break;
-            case 'both':
-              navigate('/participant/dashboard');
-              break;
-            default:
-              navigate('/participant/dashboard');
-          }
-        }
+        await redirectBasedOnUserType(data.user.id);
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.message || 'Invalid credentials');
+      setError(err.message || 'Invalid login credentials');
     } finally {
       setLoading(false);
     }
@@ -66,7 +89,16 @@ export default function UserLogin() {
     setMessage('');
     setLoading(true);
 
+    if (!resetEmail) {
+      setError('Please enter your email address');
+      setLoading(false);
+      return;
+    }
+
     try {
+      // Store email for the reset password flow
+      sessionStorage.setItem('resetEmail', resetEmail);
+
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
         redirectTo: `${window.location.origin}/reset-password`,
       });
@@ -74,8 +106,10 @@ export default function UserLogin() {
       if (error) throw error;
 
       setMessage('Password reset instructions have been sent to your email');
-      setShowForgotPassword(false);
-      setResetEmail('');
+      setTimeout(() => {
+        setShowForgotPassword(false);
+        setResetEmail('');
+      }, 3000);
     } catch (err) {
       console.error('Reset password error:', err);
       setError(err.message || 'Failed to send reset instructions');
@@ -98,7 +132,10 @@ export default function UserLogin() {
           {!showForgotPassword && (
             <p className="mt-2 text-center text-sm text-blue-200">
               Or{' '}
-              <Link to="/register" className="font-medium text-blue-300 hover:text-blue-200 underline">
+              <Link 
+                to="/register" 
+                className="font-medium text-blue-300 hover:text-blue-200 underline"
+              >
                 register for the hackathon
               </Link>
             </p>
@@ -111,7 +148,11 @@ export default function UserLogin() {
             animate={{ opacity: 1 }}
             className="rounded-lg bg-green-500/10 p-4 backdrop-blur-sm"
           >
-            <div className="text-sm text-green-200">{message}</div>
+            <Alert variant="success">
+              <AlertDescription className="text-sm text-green-200">
+                {message}
+              </AlertDescription>
+            </Alert>
           </motion.div>
         )}
 
@@ -121,14 +162,20 @@ export default function UserLogin() {
             animate={{ opacity: 1 }}
             className="rounded-lg bg-red-500/10 p-4 backdrop-blur-sm"
           >
-            <div className="text-sm text-red-200">{error}</div>
+            <Alert variant="destructive">
+              <AlertDescription className="text-sm text-red-200">
+                {error}
+              </AlertDescription>
+            </Alert>
           </motion.div>
         )}
 
         {showForgotPassword ? (
           <form className="mt-8 space-y-6" onSubmit={handleForgotPassword}>
             <div>
-              <label htmlFor="reset-email" className="sr-only">Email address</label>
+              <label htmlFor="reset-email" className="sr-only">
+                Email address
+              </label>
               <input
                 id="reset-email"
                 type="email"
@@ -148,12 +195,23 @@ export default function UserLogin() {
                 disabled={loading}
                 className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg disabled:opacity-50"
               >
-                {loading ? 'Sending...' : 'Send Reset Instructions'}
+                {loading ? (
+                  <span className="flex items-center">
+                    <Loader2 className="animate-spin mr-2" size={16} />
+                    Sending...
+                  </span>
+                ) : (
+                  'Send Reset Instructions'
+                )}
               </motion.button>
               
               <button
                 type="button"
-                onClick={() => setShowForgotPassword(false)}
+                onClick={() => {
+                  setShowForgotPassword(false);
+                  setError('');
+                  setMessage('');
+                }}
                 className="w-full flex justify-center py-3 px-4 border border-white/20 text-sm font-medium rounded-xl text-white hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Back to Login
@@ -161,10 +219,12 @@ export default function UserLogin() {
             </div>
           </form>
         ) : (
-          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <form className="mt-8 space-y-6" onSubmit={handleLogin}>
             <div className="rounded-md shadow-sm -space-y-px">
               <div>
-                <label htmlFor="email" className="sr-only">Email address</label>
+                <label htmlFor="email" className="sr-only">
+                  Email address
+                </label>
                 <input
                   id="email"
                   type="email"
@@ -176,7 +236,9 @@ export default function UserLogin() {
                 />
               </div>
               <div>
-                <label htmlFor="password" className="sr-only">Password</label>
+                <label htmlFor="password" className="sr-only">
+                  Password
+                </label>
                 <input
                   id="password"
                   type="password"
@@ -192,7 +254,11 @@ export default function UserLogin() {
             <div className="flex items-center justify-end">
               <button
                 type="button"
-                onClick={() => setShowForgotPassword(true)}
+                onClick={() => {
+                  setShowForgotPassword(true);
+                  setError('');
+                  setMessage('');
+                }}
                 className="text-sm text-blue-300 hover:text-blue-200"
               >
                 Forgot your password?
@@ -207,7 +273,14 @@ export default function UserLogin() {
                 disabled={loading}
                 className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg disabled:opacity-50"
               >
-                {loading ? 'Signing in...' : 'Sign in'}
+                {loading ? (
+                  <span className="flex items-center">
+                    <Loader2 className="animate-spin mr-2" size={16} />
+                    Signing in...
+                  </span>
+                ) : (
+                  'Sign in'
+                )}
               </motion.button>
             </div>
           </form>
