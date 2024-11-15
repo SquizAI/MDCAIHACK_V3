@@ -22,7 +22,6 @@ export default function ResetPassword() {
     const type = params.get('type');
 
     if (access_token && refresh_token && type === 'recovery') {
-      // Set the session
       supabase.auth.setSession({ access_token, refresh_token })
         .then(({ data, error }) => {
           if (error) {
@@ -185,4 +184,3 @@ export default function ResetPassword() {
     </div>
   );
 }
-

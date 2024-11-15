@@ -108,12 +108,8 @@ export default function UserLogin() {
     }
 
     try {
-      // Store email for the reset flow
-      sessionStorage.setItem('resetEmail', resetEmail);
-
       // For Netlify, we need to ensure we use the correct URL format
-      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
-      const resetUrl = new URL('/reset-password', siteUrl).toString();
+      const resetUrl = 'https://mdcaihacks.netlify.app/reset-password#';
 
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
         redirectTo: resetUrl,
