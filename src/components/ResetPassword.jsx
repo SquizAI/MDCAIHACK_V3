@@ -12,6 +12,18 @@ export default function ResetPassword() {
   const [message, setMessage] = useState('');
   const navigate = useNavigate();
 
+  useEffect(() => {
+    // Extract the token on component mount
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const token = hashParams.get('access_token');
+    const type = hashParams.get('type');
+
+    if (!token || type !== 'recovery') {
+      setError('Invalid or expired reset link');
+      setTimeout(() => navigate('/login'), 3000);
+    }
+  }, [navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -33,40 +45,22 @@ export default function ResetPassword() {
       // Get the token from the URL
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       const token = hashParams.get('access_token');
+
+      // First, exchange the PKCE token for a session
+      const { data, error: sessionError } = await supabase.auth.exchangeCodeForSession(token);
       
-      if (!token) {
-        throw new Error('No reset token found');
-      }
+      if (sessionError) throw sessionError;
 
-      // Get the email from sessionStorage (set during the forgot password request)
-      const email = sessionStorage.getItem('resetEmail');
-      
-      if (!email) {
-        throw new Error('Email not found. Please try the reset password process again.');
-      }
-
-      // First verify the recovery token
-      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
-        email,
-        token,
-        type: 'recovery'
-      });
-
-      if (verifyError) throw verifyError;
-
-      // If verification successful, update the password
-      const { data: updateData, error: updateError } = await supabase.auth.updateUser({
+      // Now update the password
+      const { error: updateError } = await supabase.auth.updateUser({
         password: newPassword
       });
 
       if (updateError) throw updateError;
 
-      // Clear the stored email
-      sessionStorage.removeItem('resetEmail');
-
       setMessage('Password has been successfully reset! Redirecting to login...');
       
-      // Sign out to clear any session
+      // Sign out after successful password reset
       await supabase.auth.signOut();
       
       setTimeout(() => {
