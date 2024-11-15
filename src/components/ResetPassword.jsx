@@ -2,52 +2,44 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { supabase } from '../lib/supabase';
+import { Loader2 } from "lucide-react";
 
 export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [isOtpMode, setIsOtpMode] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const validateResetToken = async () => {
+    const setAuthSession = async () => {
       try {
-        const hash = window.location.hash;
-        if (!hash) {
-          // No hash present, switch to OTP mode
-          setIsOtpMode(true);
-          return;
-        }
-
-        // Remove the leading # and parse parameters
-        const params = new URLSearchParams(hash.substring(1));
-        const accessToken = params.get('access_token');
-        const type = params.get('type');
+        // Get the access token from the URL hash
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const accessToken = hashParams.get('access_token');
+        const type = hashParams.get('type');
 
         if (!accessToken || type !== 'recovery') {
-          setIsOtpMode(true);
-          return;
+          throw new Error('Invalid or expired reset link');
         }
 
-        // Verify the token is valid
-        const { data: { user }, error: userError } = await supabase.auth.getUser(accessToken);
-        
-        if (userError || !user) {
-          throw new Error('Invalid or expired reset token');
-        }
+        // Set the session using the access token
+        const { data: { session }, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: '',
+        });
+
+        if (sessionError) throw sessionError;
 
       } catch (err) {
-        console.error('Token validation error:', err);
-        setError('Invalid or expired reset link. Please use the 6-digit code from your email.');
-        setIsOtpMode(true);
+        console.error('Session error:', err);
+        setError('Invalid or expired reset link. Please request a new password reset.');
+        setTimeout(() => navigate('/login'), 3000);
       }
     };
 
-    validateResetToken();
+    setAuthSession();
   }, [navigate]);
 
   const handleSubmit = async (e) => {
@@ -68,27 +60,20 @@ export default function ResetPassword() {
     setLoading(true);
 
     try {
-      if (isOtpMode) {
-        // Use OTP to verify and reset password
-        const { error: resetError } = await supabase.auth.verifyOtp({
-          email: sessionStorage.getItem('resetEmail'), // You need to store this when sending the reset email
-          token: otp,
-          type: 'recovery'
-        });
-
-        if (resetError) throw resetError;
-      }
-
-      // Update the password
+      // Update the user's password
       const { error: updateError } = await supabase.auth.updateUser({
         password: newPassword
       });
 
       if (updateError) throw updateError;
 
+      // Password update successful
       setMessage('Password has been successfully reset! Redirecting to login...');
+      
+      // Sign out to clear the recovery session
       await supabase.auth.signOut();
       
+      // Redirect to login after a short delay
       setTimeout(() => {
         navigate('/login');
       }, 2000);
@@ -113,7 +98,7 @@ export default function ResetPassword() {
             Reset Your Password
           </h2>
           <p className="mt-2 text-center text-sm text-blue-200">
-            {isOtpMode ? 'Enter the 6-digit code from your email' : 'Please enter your new password'}
+            Please enter your new password
           </p>
         </div>
 
@@ -138,23 +123,6 @@ export default function ResetPassword() {
         )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {isOtpMode && (
-            <div>
-              <label htmlFor="otp" className="sr-only">6-digit code</label>
-              <input
-                id="otp"
-                type="text"
-                required
-                maxLength={6}
-                pattern="\d{6}"
-                className="appearance-none rounded-xl relative block w-full px-4 py-3 border border-white/10 placeholder-gray-400 text-white bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
-                placeholder="Enter 6-digit code"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-              />
-            </div>
-          )}
-
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="new-password" className="sr-only">New Password</label>
@@ -190,7 +158,14 @@ export default function ResetPassword() {
               disabled={loading}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-xl text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 shadow-lg disabled:opacity-50"
             >
-              {loading ? 'Resetting...' : 'Reset Password'}
+              {loading ? (
+                <span className="flex items-center justify-center">
+                  <Loader2 className="animate-spin mr-2" size={16} />
+                  Resetting...
+                </span>
+              ) : (
+                'Reset Password'
+              )}
             </motion.button>
           </div>
         </form>
