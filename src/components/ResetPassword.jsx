@@ -10,26 +10,56 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [session, setSession] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Parse access_token and refresh_token from URL hash
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const access_token = hashParams.get('access_token');
-    const refresh_token = hashParams.get('refresh_token');
+    // Parse tokens from URL hash
+    const { hash } = window.location;
+    const params = new URLSearchParams(hash.substring(1));
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+    const type = params.get('type');
 
-    if (access_token && refresh_token) {
+    if (access_token && refresh_token && type === 'recovery') {
       // Set the session
-      supabase.auth.setSession({ access_token, refresh_token });
+      supabase.auth.setSession({ access_token, refresh_token })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error('Error setting session:', error);
+            setError('Failed to set session. Please try resetting your password again.');
+          } else {
+            setSession(data.session);
+          }
+        });
     } else {
       setError('Invalid or expired link. Please try resetting your password again.');
     }
+
+    // Listen for auth state changes
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setSession(session);
+      } else {
+        setSession(null);
+      }
+    });
+
+    // Cleanup on unmount
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setMessage('');
+
+    if (!session) {
+      setError('Session not established. Please try resetting your password again.');
+      return;
+    }
 
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match');
@@ -52,7 +82,10 @@ export default function ResetPassword() {
       if (error) throw error;
 
       setMessage('Password has been successfully reset! Redirecting to login...');
-      
+
+      // Sign out the user after password reset
+      await supabase.auth.signOut();
+
       setTimeout(() => {
         navigate('/login');
       }, 2000);
@@ -152,3 +185,4 @@ export default function ResetPassword() {
     </div>
   );
 }
+
