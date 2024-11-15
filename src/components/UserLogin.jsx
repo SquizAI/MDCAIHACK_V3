@@ -14,18 +14,30 @@ export default function UserLogin() {
   const [resetEmail, setResetEmail] = useState('');
   const navigate = useNavigate();
 
-  // Check for existing session on component mount
+  // Check for existing session on mount
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
+      if (session?.user) {
         redirectBasedOnUserType(session.user.id);
       }
     };
     checkSession();
   }, []);
 
-  // Helper function to redirect based on user type
+  // Handle auth state changes
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        redirectBasedOnUserType(session.user.id);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
   const redirectBasedOnUserType = async (userId) => {
     try {
       const { data: profile, error: profileError } = await supabase
@@ -96,11 +108,15 @@ export default function UserLogin() {
     }
 
     try {
-      // Store email for the reset password flow
+      // Store email for the reset flow
       sessionStorage.setItem('resetEmail', resetEmail);
 
+      // For Netlify, we need to ensure we use the correct URL format
+      const siteUrl = import.meta.env.VITE_SITE_URL || window.location.origin;
+      const resetUrl = new URL('/reset-password', siteUrl).toString();
+
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: resetUrl,
       });
 
       if (error) throw error;
@@ -115,6 +131,15 @@ export default function UserLogin() {
       setError(err.message || 'Failed to send reset instructions');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const toggleForgotPassword = (show) => {
+    setShowForgotPassword(show);
+    setError('');
+    setMessage('');
+    if (!show) {
+      setResetEmail('');
     }
   };
 
@@ -148,7 +173,7 @@ export default function UserLogin() {
             animate={{ opacity: 1 }}
             className="rounded-lg bg-green-500/10 p-4 backdrop-blur-sm"
           >
-            <Alert variant="success">
+            <Alert>
               <AlertDescription className="text-sm text-green-200">
                 {message}
               </AlertDescription>
@@ -207,11 +232,7 @@ export default function UserLogin() {
               
               <button
                 type="button"
-                onClick={() => {
-                  setShowForgotPassword(false);
-                  setError('');
-                  setMessage('');
-                }}
+                onClick={() => toggleForgotPassword(false)}
                 className="w-full flex justify-center py-3 px-4 border border-white/20 text-sm font-medium rounded-xl text-white hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Back to Login
@@ -254,11 +275,7 @@ export default function UserLogin() {
             <div className="flex items-center justify-end">
               <button
                 type="button"
-                onClick={() => {
-                  setShowForgotPassword(true);
-                  setError('');
-                  setMessage('');
-                }}
+                onClick={() => toggleForgotPassword(true)}
                 className="text-sm text-blue-300 hover:text-blue-200"
               >
                 Forgot your password?

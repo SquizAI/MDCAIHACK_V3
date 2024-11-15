@@ -12,36 +12,6 @@ export default function ResetPassword() {
   const [message, setMessage] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const setAuthSession = async () => {
-      try {
-        // Get the access token from the URL hash
-        const hashParams = new URLSearchParams(window.location.hash.substring(1));
-        const accessToken = hashParams.get('access_token');
-        const type = hashParams.get('type');
-
-        if (!accessToken || type !== 'recovery') {
-          throw new Error('Invalid or expired reset link');
-        }
-
-        // Set the session using the access token
-        const { data: { session }, error: sessionError } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: '',
-        });
-
-        if (sessionError) throw sessionError;
-
-      } catch (err) {
-        console.error('Session error:', err);
-        setError('Invalid or expired reset link. Please request a new password reset.');
-        setTimeout(() => navigate('/login'), 3000);
-      }
-    };
-
-    setAuthSession();
-  }, [navigate]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -60,20 +30,45 @@ export default function ResetPassword() {
     setLoading(true);
 
     try {
-      // Update the user's password
-      const { error: updateError } = await supabase.auth.updateUser({
+      // Get the token from the URL
+      const hashParams = new URLSearchParams(window.location.hash.substring(1));
+      const token = hashParams.get('access_token');
+      
+      if (!token) {
+        throw new Error('No reset token found');
+      }
+
+      // Get the email from sessionStorage (set during the forgot password request)
+      const email = sessionStorage.getItem('resetEmail');
+      
+      if (!email) {
+        throw new Error('Email not found. Please try the reset password process again.');
+      }
+
+      // First verify the recovery token
+      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'recovery'
+      });
+
+      if (verifyError) throw verifyError;
+
+      // If verification successful, update the password
+      const { data: updateData, error: updateError } = await supabase.auth.updateUser({
         password: newPassword
       });
 
       if (updateError) throw updateError;
 
-      // Password update successful
+      // Clear the stored email
+      sessionStorage.removeItem('resetEmail');
+
       setMessage('Password has been successfully reset! Redirecting to login...');
       
-      // Sign out to clear the recovery session
+      // Sign out to clear any session
       await supabase.auth.signOut();
       
-      // Redirect to login after a short delay
       setTimeout(() => {
         navigate('/login');
       }, 2000);
