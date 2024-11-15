@@ -7,21 +7,22 @@ import { Loader2 } from "lucide-react";
 export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [showCodeInput, setShowCodeInput] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Check if we have a token in the URL
+    // Parse access_token and refresh_token from URL hash
     const hashParams = new URLSearchParams(window.location.hash.substring(1));
-    const token = hashParams.get('access_token');
-    if (!token) {
-      setShowCodeInput(true);
+    const access_token = hashParams.get('access_token');
+    const refresh_token = hashParams.get('refresh_token');
+
+    if (access_token && refresh_token) {
+      // Set the session
+      supabase.auth.setSession({ access_token, refresh_token });
     } else {
-      setCode(token);
+      setError('Invalid or expired link. Please try resetting your password again.');
     }
   }, []);
 
@@ -40,31 +41,17 @@ export default function ResetPassword() {
       return;
     }
 
-    if (!code) {
-      setError('Please enter the reset code from your email');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      const email = sessionStorage.getItem('resetEmail');
-      if (!email) {
-        throw new Error('Please start the reset process from the login page');
-      }
-
-      // Verify the OTP and update password
-      const { error: resetError } = await supabase.auth.verifyOtp({
-        email,
-        token: code,
-        type: 'recovery',
-        newPassword: newPassword
+      // Update the password
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword,
       });
 
-      if (resetError) throw resetError;
+      if (error) throw error;
 
       setMessage('Password has been successfully reset! Redirecting to login...');
-      sessionStorage.removeItem('resetEmail'); // Clean up
       
       setTimeout(() => {
         navigate('/login');
@@ -91,7 +78,6 @@ export default function ResetPassword() {
           </h2>
           <p className="mt-2 text-center text-sm text-blue-200">
             Please enter your new password
-            {showCodeInput && ' and the code from your email'}
           </p>
         </div>
 
@@ -116,23 +102,6 @@ export default function ResetPassword() {
         )}
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {showCodeInput && (
-            <div>
-              <label htmlFor="reset-code" className="sr-only">Reset Code</label>
-              <input
-                id="reset-code"
-                type="text"
-                required
-                maxLength={6}
-                pattern="\d{6}"
-                className="appearance-none rounded-xl relative block w-full px-4 py-3 border border-white/10 placeholder-gray-400 text-white bg-white/10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent backdrop-blur-sm"
-                placeholder="Enter 6-digit reset code"
-                value={code}
-                onChange={(e) => setCode(e.target.value)}
-              />
-            </div>
-          )}
-
           <div className="rounded-md shadow-sm -space-y-px">
             <div>
               <label htmlFor="new-password" className="sr-only">New Password</label>
